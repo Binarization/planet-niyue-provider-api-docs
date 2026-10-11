@@ -54,6 +54,18 @@ ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCcLyPCagiAt4v4OnmwDp5hRl2Jji1WUQB/qhavky13
 
 POST `/server/res_validate`
 
+音之域后端用它获取资源的权威元数据。用户收藏或播放某首歌后，后端会在后台批量调用本接口：先校验歌曲，再用歌曲响应里的 `album_id` / `artist_ids` 校验专辑和歌手。
+
+
+
+##### 调用约定
+
+- 单次请求最多 50 条，音源必须支持这个规模
+- 同一音源同一时刻最多 1 个请求在途，两次请求之间至少间隔 2 秒
+- 音源应在 30 秒内响应；超时后，后端会自动减小下一次请求的条数。来不及处理的条目可以返回 `unavailable`，先把已完成的部分返回
+- 音源可以返回 HTTP 429 并带上 `Retry-After` 响应头（秒），要求后端暂停一段时间再请求
+- 请求体为空数组 `[]` 时应返回空数组 `[]`，后端添加音源时用它做连通性测试
+
 
 
 ##### 请求体结构
@@ -61,20 +73,12 @@ POST `/server/res_validate`
 ```javascript
 [
 	{
-        type: "music",								// 资源类型, 可用参数: music (音乐), album (专辑), artist (艺术家)
-        id: "",										// 资源ID
+		type: "music",								// 资源类型, 可用参数: music (音乐), album (专辑), artist (艺术家)
+		id: ""										// 资源ID
 	},
 	{
-        type: "album",
-        id: "",										// 资源ID
-	},
-	{
-        type: "artist",
-        id: "",										// 资源ID
-	},
-	{
-        type: "artist",
-        id: "INVALID_ID",							// 资源ID
+		type: "album",
+		id: ""
 	}
 ]
 ```
@@ -83,38 +87,54 @@ POST `/server/res_validate`
 
 ##### 响应体结构
 
+响应为数组，**每一条都必须回显请求里的 `type` 与 `id`**。后端按 `(type, id)` 匹配结果，与顺序无关；响应里找不到的条目按 `unavailable` 处理。
+
 ```javascript
 [
-    {
-        name: "",									// 音乐名称
-        album_id?: "",								// 音乐专辑ID, 只在有专辑信息时返回
-        album_name?: "",							// 音乐专辑名称, 只在有专辑信息时返回
-        artist_ids: [""],							// 音乐艺术家ID
-        artist_names: [""],							// 音乐艺术家名称
-        hash: ""									// 音乐元数据校验值
-        fallback_url?: ""							// 资源回落URL, 向不使用当前音源API的用户提供外部页面跳转链接, 只在歌曲信息有效时返回
-    },
-    {
-        result: false, 								// 专辑ID无效
-        name: "",									// 专辑名称
-        hash: ""									// 专辑元数据校验值
-        fallback_url?: ""							// 资源回落URL, 向不使用当前音源API的用户提供外部页面跳转链接, 只在专辑信息有效时返回
-        cover_thumbhash?: ""						// 专辑封面thumbhash, 只在专辑信息有效时返回
-        cover_url: ""								// 专辑封面图片URL
-    },
-    {
-        result: true, 								// 艺术家信息有效
-        name: "",									// 艺术家名称
-        hash: ""									// 艺术家元数据校验值
-        fallback_url?: ""							// 资源回落URL, 向不使用当前音源API的用户提供外部页面跳转链接, 只在艺术家信息有效时返回
-        avatar_thumbhash?: ""						// 艺术家头像thumbhash, 只在艺术家信息有效时返回
-        avatar_url: ""								// 艺术家头像URL
-    },
-    null											// 资源无效
+	{
+		type: "music",
+		id: "",
+		result: true,								// 资源有效
+		name: "",									// 音乐名称, result 为 true 时必须返回
+		album_id?: "",								// 音乐专辑ID, 只在有专辑实体时返回; 返回了它, 后端会接着校验这张专辑
+		album_name?: "",							// 音乐专辑名称, 没有专辑ID时也可以单独返回
+		artist_ids?: [""],							// 音乐艺术家ID, 与 artist_names 按下标一一对应
+		artist_names?: [""],						// 音乐艺术家名称
+		duration_ms: 0,								// 音乐时长（毫秒）, 正整数, result 为 true 时必须返回
+		fallback_url?: ""							// 资源回落URL, 向不使用当前音源的用户提供外部页面跳转链接
+	},
+	{
+		type: "album",
+		id: "",
+		result: true,
+		name: "",									// 专辑名称, result 为 true 时必须返回
+		cover_url?: "",								// 专辑封面图片URL
+		cover_thumbhash?: "",						// 专辑封面thumbhash
+		fallback_url?: ""
+	},
+	{
+		type: "artist",
+		id: "",
+		result: true,
+		name: "",									// 艺术家名称, result 为 true 时必须返回
+		avatar_url?: "",							// 艺术家头像URL
+		avatar_thumbhash?: "",						// 艺术家头像thumbhash
+		fallback_url?: ""
+	},
+	{
+		type: "artist",
+		id: "INVALID_ID",
+		result: false,								// 资源无效
+		reason?: "not_found"						// 原因, 可用参数: not_found (确认不存在), unavailable (这次查不了, 如上游出错、超时)
+	}
 ]
 ```
 
-
+- 除 `result` 为 true 时的 `name` 与 music 的 `duration_ms` 以外，其余字段都是可选的。不返回的字段，后端会继续使用前端提供的信息展示
+- 拿不到时长的 music 请返回 `{ type, id, result: false, reason: "unavailable" }`，不要返回 `0` 或省略
+- `artist_ids` 与 `artist_names` 的条数必须相同；对不上时只返回 `artist_names`
+- 无效资源**不要返回 `null`**，请返回 `{ type, id, result: false, reason }`。没给 `reason` 按 `not_found` 处理。上游临时出错请返回 `unavailable`：后端会稍后重试，且不把这次计为失败
+- `cover_url` / `avatar_url` 必须是 `https`（开发调试除外），并且图片服务器需要按下文「CORS跨域配置」返回跨域响应头，否则前端无法显示
 
 
 
@@ -289,13 +309,16 @@ data:
             album_name?: "",						// 音乐专辑名称, 只在有专辑信息时返回
             album_cover_url?: "",					// 音乐专辑封面图片URL, 只在有专辑信息时返回
             artist_ids: [""],						// 音乐艺术家ID
-            artist_names: [""]						// 音乐艺术家名称
+            artist_names: [""],						// 音乐艺术家名称
+            duration_ms: 0,							// 音乐时长（毫秒）, 正整数, 必须返回
             hash: ""								// 艺术家元数据校验值
         },
         null										// 匹配失败
     ],
 }
 ```
+
+拿不到时长的结果按匹配失败返回 `null`。
 
 
 
@@ -334,7 +357,8 @@ data:
             album_name?: "",						// 音乐专辑名称, 只在有专辑信息时返回
             album_cover_url?: "",					// 音乐专辑封面图片URL, 只在有专辑信息时返回
             artist_ids: [""],						// 音乐艺术家ID
-            artist_names: [""]						// 音乐艺术家名称
+            artist_names: [""],						// 音乐艺术家名称
+            duration_ms: 0							// 音乐时长（毫秒）, 正整数, 必须返回
         }
     ],
     page: {											// 分页
@@ -342,6 +366,8 @@ data:
     }
 }
 ```
+
+拿不到时长的结果请直接从 `results` 里去掉，`page.more` 仍按上游实际情况返回。
 
 
 
@@ -372,9 +398,12 @@ data:
 {
     play_url: "",									// 播放链接
     backup_play_urls?: [],							// 备用播放链接，可选，在主播放链接播放失败时，按顺序尝试
+    duration_ms: 0,									// 音乐时长（毫秒），正整数，必须返回，前端用它判定有效播放
     lrc: ""											// lrc格式歌词
 }
 ```
+
+拿不到时长时请按获取失败返回（`result: false`），不要返回 `0` 或省略。
 
 
 
