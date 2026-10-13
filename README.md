@@ -234,9 +234,18 @@ data:
 
 ```javascript
 {
-    "pong": true									// 确认响应, true为成功, false为失败
+    "pong": true,									// 确认响应, true为成功, false为失败
+    "capabilities"?: [""]							// 支持的可选接口, 可选, 取值见下
 }
 ```
+
+`capabilities` 声明音源支持哪些可选接口，前端只对声明了的接口显示入口（如专辑名、歌手名的链接）。不返回或为空数组时，前端当作都不支持。目前的可选接口：
+
+| 取值 | 接口 |
+|---|---|
+| `album_detail` | 7. 专辑详情 |
+| `artist_detail` | 8. 歌手详情 |
+| `artist_songs` | 9. 歌手歌曲 |
 
 
 
@@ -435,6 +444,137 @@ data:
     lrc: ""											// lrc格式歌词
 }
 ```
+
+
+
+#### 7. 专辑详情
+可选接口，需要在 `ping` 的 `capabilities` 里声明 `album_detail`。用户打开专辑页时请求，分页返回专辑内的曲目
+
+
+
+**请求**
+
+type: `album_detail`
+
+data: 
+
+```javascript
+{
+    album_id: "",									// 专辑ID, 来自音乐结果里的 album_id
+    count: 20,										// 分页数量
+    page: 0											// 分页页数, 从0开始
+}
+```
+
+
+
+**响应**
+
+data:
+
+```javascript
+{
+    album: {										// 专辑信息, 每一页都返回
+        id: "",										// 专辑ID
+        name: "",									// 专辑名称
+        cover_url?: ""								// 专辑封面图片URL, 可选
+    },
+    tracks: [										// 曲目, 按专辑内顺序, 结构同「4. 搜索音乐」的结果项
+        {
+            id: "",
+            name: "",
+            album_id?: "",
+            album_name?: "",
+            album_cover_url?: "",
+            artist_ids: [""],
+            artist_names: [""],
+            duration_ms: 0
+        }
+    ],
+    page: {											// 分页
+        more: true									// 还有更多曲目
+    }
+}
+```
+
+专辑信息不包含艺术家，艺术家只在每首曲目上。专辑不存在时按失败返回（`result: false`）。专辑存在但没有可播放的曲目时，正常返回专辑信息，`tracks` 为空数组。
+
+拿不到时长或无法播放的曲目请从 `tracks` 里去掉，`page.more` 仍按上游实际情况返回；前端以 `page.more` 判断是否还有下一页，不以单页条数判断。
+
+
+
+#### 8. 歌手详情
+可选接口，需要在 `ping` 的 `capabilities` 里声明 `artist_detail`。用户打开歌手页时请求
+
+
+
+**请求**
+
+type: `artist_detail`
+
+data: 
+
+```javascript
+{
+    artist_id: ""									// 艺术家ID, 来自音乐结果里的 artist_ids
+}
+```
+
+
+
+**响应**
+
+data:
+
+```javascript
+{
+    artist: {
+        id: "",										// 艺术家ID
+        name: "",									// 艺术家名称
+        avatar_url?: ""								// 艺术家头像图片URL, 可选
+    }
+}
+```
+
+艺术家不存在时按失败返回（`result: false`）。
+
+
+
+#### 9. 歌手歌曲
+可选接口，需要在 `ping` 的 `capabilities` 里声明 `artist_songs`。歌手页的歌曲列表，分页返回
+
+
+
+**请求**
+
+type: `artist_songs`
+
+data: 
+
+```javascript
+{
+    artist_id: "",									// 艺术家ID
+    count: 20,										// 分页数量
+    page: 0											// 分页页数, 从0开始
+}
+```
+
+
+
+**响应**
+
+data:
+
+```javascript
+{
+    results: [],									// 歌曲, 结构同「4. 搜索音乐」的结果项
+    page: {											// 分页
+        more: true									// 还有更多歌曲
+    }
+}
+```
+
+没有可展示的歌曲时返回空数组，前端此时不显示歌曲区块。分页约定同「7. 专辑详情」。
 
 
 
