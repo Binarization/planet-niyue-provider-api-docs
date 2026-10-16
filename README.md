@@ -243,9 +243,9 @@ data:
 
 | 取值 | 接口 |
 |---|---|
-| `album_detail` | 7. 专辑详情 |
-| `artist_detail` | 8. 歌手详情 |
-| `artist_songs` | 9. 歌手歌曲 |
+| `album_detail` | 8. 专辑详情 |
+| `artist_detail` | 9. 歌手详情 |
+| `artist_songs` | 10. 歌手歌曲 |
 
 
 
@@ -447,7 +447,39 @@ data:
 
 
 
-#### 7. 专辑详情
+#### 7. 单曲详情
+按音乐 ID 返回这首歌的信息
+
+
+
+**请求**
+
+type: `music_detail`
+
+data: 
+
+```javascript
+{
+    music_id: ""									// 音乐ID，与搜索结果里的 id 同一种格式
+}
+```
+
+
+
+**响应**
+
+data:
+
+```javascript
+{
+    music: {}										// 字段同「4. 搜索音乐」的结果项
+}
+```
+
+歌曲不存在时按获取失败返回（`result: false`）。与搜索一致，没有时长或没有播放权限的歌也按不存在处理
+
+
+#### 8. 专辑详情
 可选接口，需要在 `ping` 的 `capabilities` 里声明 `album_detail`。用户打开专辑页时请求，分页返回专辑内的曲目
 
 
@@ -503,7 +535,7 @@ data:
 
 
 
-#### 8. 歌手详情
+#### 9. 歌手详情
 可选接口，需要在 `ping` 的 `capabilities` 里声明 `artist_detail`。用户打开歌手页时请求
 
 
@@ -540,7 +572,7 @@ data:
 
 
 
-#### 9. 歌手歌曲
+#### 10. 歌手歌曲
 可选接口，需要在 `ping` 的 `capabilities` 里声明 `artist_songs`。歌手页的歌曲列表，分页返回
 
 
